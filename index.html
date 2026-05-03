@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>توپ در مربع - بازتاب ۴۵ درجه</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #1a1a2e;
+            font-family: Tahoma, Arial, sans-serif;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        h1 {
+            color: #eee;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        #canvas {
+            border: 3px solid #4ecca3;
+            background: #16213e;
+            border-radius: 5px;
+        }
+
+        .info {
+            color: #aaa;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+
+        #collisionCount {
+            color: #4ecca3;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>شبیه‌سازی توپ با زاویه ۴۵ درجه</h1>
+        <canvas id="canvas" width="500" height="500"></canvas>
+        <p class="info">تعداد برخوردها: <span id="collisionCount">0</span></p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const collisionCountEl = document.getElementById('collisionCount');
+
+        const size = 500;
+        const ballRadius = 10;
+        
+        // موقعیت اولیه توپ (مرکز)
+        let ball = {
+            x: size / 2,
+            y: size / 2,
+            vx: 3, // سرعت در جهت X
+            vy: 3  // سرعت در جهت Y (زاویه ۴۵ درجه)
+        };
+
+        let collisions = 0;
+        let lines = []; // ذخیره خطوط ایجاد شده
+
+        function drawSquare() {
+            ctx.strokeStyle = '#4ecca3';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(0, 0, size, size);
+        }
+
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#e94560';
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawLines() {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            
+            lines.forEach(line => {
+                ctx.beginPath();
+                ctx.moveTo(line.x1, line.y1);
+                ctx.lineTo(line.x2, line.y2);
+                ctx.stroke();
+            });
+        }
+
+        function update() {
+            // حرکت توپ
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            let collided = false;
+
+            // بررسی برخورد با دیوارها
+            // دیوار راست
+            if (ball.x + ballRadius >= size) {
+                ball.x = size - ballRadius;
+                ball.vx = -ball.vx;
+                collided = true;
+                addLine('right', ball.x, ball.y);
+            }
+            // دیوار چپ
+            else if (ball.x - ballRadius <= 0) {
+                ball.x = ballRadius;
+                ball.vx = -ball.vx;
+                collided = true;
+                addLine('left', ball.x, ball.y);
+            }
+
+            // دیوار پایین
+            if (ball.y + ballRadius >= size) {
+                ball.y = size - ballRadius;
+                ball.vy = -ball.vy;
+                collided = true;
+                addLine('bottom', ball.x, ball.y);
+            }
+            // دیوار بالا
+            else if (ball.y - ballRadius <= 0) {
+                ball.y = ballRadius;
+                ball.vy = -ball.vy;
+                collided = true;
+                addLine('top', ball.x, ball.y);
+            }
+
+            if (collided) {
+                collisions++;
+                collisionCountEl.textContent = collisions;
+            }
+        }
+
+        function addLine(wall, x, y) {
+            // ایجاد خط عمود بر دیوار برخورد
+            const lineLength = 30;
+            
+            switch(wall) {
+                case 'right':
+                    lines.push({x1: x, y1: y - lineLength/2, x2: x, y2: y + lineLength/2});
+                    break;
+                case 'left':
+                    lines.push({x1: x, y1: y - lineLength/2, x2: x, y2: y + lineLength/2});
+                    break;
+                case 'top':
+                    lines.push({x1: x - lineLength/2, y1: y, x2: x + lineLength/2, y2: y});
+                    break;
+                case 'bottom':
+                    lines.push({x1: x - lineLength/2, y1: y, x2: x + lineLength/2, y2: y});
+                    break;
+            }
+
+            // محدود کردن تعداد خطوط برای عملکرد بهتر
+            if (lines.length > 100) {
+                lines.shift();
+            }
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, size, size);
+            drawSquare();
+            drawLines();
+            drawBall();
+        }
+
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // شروع بازی
+        gameLoop();
+    </script>
+</body>
+</html>
