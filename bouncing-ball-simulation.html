@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bouncing Ball with Crack Effects</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 30px;
+            color: #e94560;
+            font-size: 18px;
+            text-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
+        }
+
+        .stat-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(233, 69, 96, 0.3),
+                        0 0 100px rgba(233, 69, 96, 0.1);
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background: rgba(0, 0, 0, 0.8);
+            border: 3px solid #e94560;
+            border-radius: 15px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #e94560, #c23a51);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(233, 69, 96, 0.6);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .sound-toggle {
+            background: linear-gradient(135deg, #0f3460, #16213e);
+        }
+
+        .sound-toggle.active {
+            background: linear-gradient(135deg, #4ecca3, #45b08c);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="stats">
+            <div class="stat-item">Collisions: <span id="collision-count">0</span></div>
+            <div class="stat-item">Speed: <span id="speed-display">100</span>%</div>
+        </div>
+        
+        <div id="canvas-container">
+            <canvas id="simulationCanvas" width="600" height="600"></canvas>
+        </div>
+        
+        <div class="controls">
+            <button id="resetBtn">Reset Simulation</button>
+            <button id="soundBtn" class="sound-toggle active">Sound: ON</button>
+        </div>
+    </div>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+        const collisionCountEl = document.getElementById('collision-count');
+        const speedDisplayEl = document.getElementById('speed-display');
+        const resetBtn = document.getElementById('resetBtn');
+        const soundBtn = document.getElementById('soundBtn');
+
+        // Configuration
+        const config = {
+            ballRadius: 12,
+            baseSpeed: 4,
+            maxSpeed: 12,
+            speedIncrement: 0.02,
+            crackFadeRate: 0.0005,
+            minCrackOpacity: 0.1,
+            epsilon: 0.01 // Tiny randomness to prevent perfect cycles
+        };
+
+        // State
+        let state = {
+            ball: {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                vx: 0,
+                vy: 0
+            },
+            cracks: [],
+            collisionCount: 0,
+            currentSpeed: config.baseSpeed,
+            soundEnabled: true,
+            animationId: null
+        };
+
+        // Audio context for sound effects
+        let audioContext = null;
+
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playCollisionSound() {
+            if (!state.soundEnabled || !audioContext) return;
+
+            try {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                // Randomize frequency slightly for variety
+                const frequency = 200 + Math.random() * 100;
+                oscillator.frequency.value = frequency;
+                oscillator.type = 'sine';
+
+                // Short decay envelope
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.1);
+            } catch (e) {
+                console.log('Audio not supported or blocked');
+            }
+        }
+
+        // Initialize ball with non-perfect angle (between 30-60 degrees, avoiding 45)
+        function initializeBall() {
+            // Generate random angle between 30-60 degrees, but avoid exactly 45
+            let angle;
+            do {
+                angle = 30 + Math.random() * 30; // 30 to 60 degrees
+            } while (Math.abs(angle - 45) < 5); // Avoid angles too close to 45
+
+            // Convert to radians and randomize direction
+            const radian = (angle * Math.PI) / 180;
+            const directionX = Math.random() > 0.5 ? 1 : -1;
+            const directionY = Math.random() > 0.5 ? 1 : -1;
+
+            state.ball.x = canvas.width / 2;
+            state.ball.y = canvas.height / 2;
+            state.ball.vx = Math.cos(radian) * config.baseSpeed * directionX;
+            state.ball.vy = Math.sin(radian) * config.baseSpeed * directionY;
+            state.currentSpeed = config.baseSpeed;
+            state.collisionCount = 0;
+            state.cracks = [];
+            
+            updateStats();
+        }
+
+        // Create crack effect at collision point
+        function createCrack(x, y, wall) {
+            const crack = {
+                x: x,
+                y: y,
+                wall: wall, // 'top', 'bottom', 'left', 'right'
+                opacity: 1,
+                segments: generateCrackSegments(wall)
+            };
+            state.cracks.push(crack);
+            
+            // Limit number of cracks for performance
+            if (state.cracks.length > 200) {
+                state.cracks.shift();
+            }
+        }
+
+        // Generate random crack segments
+        function generateCrackSegments(wall) {
+            const segments = [];
+            const numSegments = 3 + Math.floor(Math.random() * 5);
+            
+            for (let i = 0; i < numSegments; i++) {
+                let dx, dy;
+                
+                if (wall === 'top' || wall === 'bottom') {
+                    dx = (Math.random() - 0.5) * 30;
+                    dy = wall === 'top' ? Math.random() * 20 : -Math.random() * 20;
+                } else {
+                    dx = wall === 'left' ? Math.random() * 20 : -Math.random() * 20;
+                    dy = (Math.random() - 0.5) * 30;
+                }
+                
+                segments.push({
+                    dx: dx,
+                    dy: dy,
+                    width: 1 + Math.random() * 2
+                });
+            }
+            
+            return segments;
+        }
+
+        // Update ball physics
+        function updateBall() {
+            const ball = state.ball;
+            const radius = config.ballRadius;
+
+            // Move ball
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            let collided = false;
+            let collisionWall = null;
+            let collisionX = 0;
+            let collisionY = 0;
+
+            // Check collisions with walls
+            if (ball.x - radius <= 0) {
+                ball.x = radius;
+                ball.vx = -ball.vx;
+                collided = true;
+                collisionWall = 'left';
+                collisionX = 0;
+                collisionY = ball.y;
+            } else if (ball.x + radius >= canvas.width) {
+                ball.x = canvas.width - radius;
+                ball.vx = -ball.vx;
+                collided = true;
+                collisionWall = 'right';
+                collisionX = canvas.width;
+                collisionY = ball.y;
+            }
+
+            if (ball.y - radius <= 0) {
+                ball.y = radius;
+                ball.vy = -ball.vy;
+                collided = true;
+                collisionWall = collisionWall || 'top';
+                if (!collisionWall) {
+                    collisionWall = 'top';
+                    collisionX = ball.x;
+                    collisionY = 0;
+                }
+            } else if (ball.y + radius >= canvas.height) {
+                ball.y = canvas.height - radius;
+                ball.vy = -ball.vy;
+                collided = true;
+                if (!collisionWall) {
+                    collisionWall = 'bottom';
+                    collisionX = ball.x;
+                    collisionY = canvas.height;
+                }
+            }
+
+            if (collided) {
+                state.collisionCount++;
+                
+                // Add tiny randomness to prevent perfect cycles
+                ball.vx += (Math.random() - 0.5) * config.epsilon;
+                ball.vy += (Math.random() - 0.5) * config.epsilon;
+                
+                // Normalize velocity to maintain consistent speed
+                const currentSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+                ball.vx = (ball.vx / currentSpeed) * state.currentSpeed;
+                ball.vy = (ball.vy / currentSpeed) * state.currentSpeed;
+                
+                // Increase speed gradually
+                if (state.currentSpeed < config.maxSpeed) {
+                    state.currentSpeed = Math.min(config.maxSpeed, state.currentSpeed + config.speedIncrement);
+                }
+                
+                // Create crack effect
+                createCrack(collisionX, collisionY, collisionWall);
+                
+                // Play sound
+                playCollisionSound();
+                
+                updateStats();
+            }
+        }
+
+        // Update stats display
+        function updateStats() {
+            collisionCountEl.textContent = state.collisionCount;
+            speedDisplayEl.textContent = Math.round((state.currentSpeed / config.baseSpeed) * 100);
+        }
+
+        // Draw functions
+        function drawCrack(crack) {
+            ctx.save();
+            ctx.globalAlpha = crack.opacity;
+            ctx.strokeStyle = '#e94560';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#e94560';
+            ctx.shadowBlur = 10;
+
+            ctx.beginPath();
+            ctx.moveTo(crack.x, crack.y);
+
+            let currentX = crack.x;
+            let currentY = crack.y;
+
+            crack.segments.forEach(segment => {
+                currentX += segment.dx;
+                currentY += segment.dy;
+                ctx.lineTo(currentX, currentY);
+            });
+
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function drawBall() {
+            const ball = state.ball;
+            
+            // Glow effect
+            const gradient = ctx.createRadialGradient(
+                ball.x, ball.y, 0,
+                ball.x, ball.y, config.ballRadius * 2
+            );
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(0.3, '#4ecca3');
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.save();
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, config.ballRadius * 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Main ball
+            ctx.fillStyle = '#4ecca3';
+            ctx.shadowColor = '#4ecca3';
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, config.ballRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function draw() {
+            // Clear canvas with fade effect for trails
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw and update cracks
+            state.cracks = state.cracks.filter(crack => {
+                drawCrack(crack);
+                crack.opacity -= config.crackFadeRate;
+                return crack.opacity > config.minCrackOpacity;
+            });
+
+            // Draw ball
+            drawBall();
+        }
+
+        // Animation loop
+        function animate() {
+            updateBall();
+            draw();
+            state.animationId = requestAnimationFrame(animate);
+        }
+
+        // Reset simulation
+        function resetSimulation() {
+            if (state.animationId) {
+                cancelAnimationFrame(state.animationId);
+            }
+            initializeBall();
+            // Clear canvas completely
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            animate();
+        }
+
+        // Toggle sound
+        function toggleSound() {
+            state.soundEnabled = !state.soundEnabled;
+            soundBtn.textContent = `Sound: ${state.soundEnabled ? 'ON' : 'OFF'}`;
+            soundBtn.classList.toggle('active', state.soundEnabled);
+            
+            if (state.soundEnabled) {
+                initAudio();
+            }
+        }
+
+        // Event listeners
+        resetBtn.addEventListener('click', resetSimulation);
+        soundBtn.addEventListener('click', toggleSound);
+
+        // Initialize and start
+        function init() {
+            initAudio();
+            initializeBall();
+            
+            // Initial clear
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            animate();
+        }
+
+        // Start the simulation
+        init();
+    </script>
+</body>
+</html>
